@@ -1,0 +1,101 @@
+name: CodeQL
+
+on:
+  push:
+    branches: ["main", "homolog"]
+  pull_request:
+    branches: ["main", "homolog"]
+  schedule:
+    - cron: '0 2 * * 1' # Executa toda segunda-feira às 2h
+
+jobs:
+  analyze:
+    name: Analyze with CodeQL
+    runs-on: ubuntu-latest
+
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build project
+        run: |
+          echo "🔧 Build step (ajuste conforme necessário)"
+          # Exemplo: npm run build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          output: sarif-results
+          add-snippet: true
+
+      - name: ❌ Falhar se CodeQL encontrar vulnerabilidades
+        run: |
+          FILE=sarif-results/${{ matrix.language }}.sarif
+          echo "Verificando $FILE"
+
+          if [ ! -f "$FILE" ]; then
+            echo "::error::Arquivo SARIF não encontrado!"
+            exit 1
+          fi
+
+          count=$(jq '[.runs[].results[]] | length' "$FILE")
+          echo "🚨 CodeQL encontrou $count vulnerabilidade(s)"
+
+          if [ "$count" -gt 0 ]; then
+            echo "::error::❌ Vulnerabilidades encontradas pelo CodeQL!"
+            exit 1
+          fi
+
+      - name: Enviar relatório SARIF do CodeQL para DefectDojo
+        if: always()
+        run: |
+          echo "Enviando sarif-results/javascript.sarif para DefectDojo..."
+          response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+            -H "Authorization: Token ${{ secrets.DEFECTDOJO_TOKEN }}" \
+            -F "scan_type=SARIF" \
+            -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
+            -F "file=@sarif-results/javascript.sarif" \
+            -F "minimum_severity=Low" \
+            -F "active=true" \
+            -F "verified=false" \
+            -F "reimport=true" \
+            -F "close_old_findings=true" \
+            -F "do_not_reactivate=false" )
+          body=$(echo "$response" | head -n -1)
+          code=$(echo "$response" | tail -n1)
+          echo "Resposta do DefectDojo (HTTP $code):"
+          echo "$body"
+          if [ "$code" -ge 400 ]; then
+            echo "::error::Falha ao enviar relatório para DefectDojo!"
+            exit 1
+          fi
+          echo "Relatório enviado com sucesso. Verifique o DefectDojo para os resultados."
+
+      - name: 🔗 Link para os resultados no Code Scanning.
+        run: |
+          echo "🔗 Veja os resultados em: https://github.com/${{ github.repository }}/security/code-scanning"
+
+

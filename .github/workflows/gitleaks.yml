@@ -1,0 +1,83 @@
+name: Gitleaks Secret Scan
+
+on:
+  push:
+    branches:
+      - main
+      - homolog
+  pull_request:
+    branches:
+      - main
+      - homolog
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *"  # diário às 4h da manhã
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  gitleaks:
+    name: Run Gitleaks secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Criar diretório de relatórios (garantido)
+        run: |
+          mkdir -p reports
+          ls -lh
+
+      - name: Run Gitleaks scan (SARIF e JSON) via Docker
+        run: |
+          echo "Rodando Gitleaks SARIF..."
+          docker run --rm -v "${{ github.workspace }}:/repo" zricethezav/gitleaks:latest detect \
+            --source=/repo \
+            --report-format sarif \
+            --report-path=/repo/reports/gitleaks.sarif || true
+          
+          echo "Rodando Gitleaks JSON..."
+          docker run --rm -v "${{ github.workspace }}:/repo" zricethezav/gitleaks:latest detect \
+            --source=/repo \
+            --report-format json \
+            --report-path=/repo/reports/gitleaks-report.json 
+        
+      - name: Upload Gitleaks SARIF report to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/gitleaks.sarif
+
+      - name: Enviar relatório Gitleaks JSON para DefectDojo
+        if: always()
+        run: |
+          echo "URL de envio: ${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/"
+          response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+            -H "Authorization: Token ${{ secrets.DEFECTDOJO_TOKEN }}" \
+            -F "scan_type=Gitleaks Scan" \
+            -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
+            -F "file=@reports/gitleaks-report.json" \
+            -F "minimum_severity=Low" \
+            -F "active=true" \
+            -F "verified=false" \
+            -F "reimport=true" \
+            -F "close_old_findings=true" \
+            -F "do_not_reactivate=false" )
+          body=$(echo "$response" | head -n -1)
+          code=$(echo "$response" | tail -n1)
+          echo "Resposta do DefectDojo (HTTP $code):"
+          echo "$body"
+          if [ "$code" -ge 400 ]; then
+            echo "::error::Falha ao enviar relatório para DefectDojo!"
+            exit 1
+          fi
+          echo "Relatório enviado com sucesso. Verifique o DefectDojo para os resultados."
+
+
+
+

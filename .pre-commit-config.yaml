@@ -1,0 +1,27 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+
+  - repo: local
+    hooks:
+      - id: gitleaks-system
+        name: Detect secrets via Gitleaks (local binary)
+        entry: gitleaks detect --no-git --source=. --config .gitleaks.toml --redact --verbose
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  - repo: local
+    hooks:
+      - id: snyk-log4shell
+        name: Snyk Log4Shell
+        description: Runs 'snyk log4shell test'
+        entry: snyk log4shell test
+        language: system
+        pass_filenames: false
+        always_run: true

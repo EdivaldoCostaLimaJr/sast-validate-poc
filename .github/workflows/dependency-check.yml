@@ -1,0 +1,53 @@
+name: Dependency Check
+
+on:
+  push:
+    branches:
+      - main
+      - homolog
+  pull_request:
+    branches:
+      - main
+      - homolog
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  dependency-check:
+    name: Run OWASP Dependency Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'dvna-sast-validate'
+          path: '.'
+          format: 'HTML'
+          out: 'dependency-check-report'
+          args: >
+            --enableRetired
+            --failOnCVSS 7
+      
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: dependency-check-report/dependency-check-report.html
+
+      

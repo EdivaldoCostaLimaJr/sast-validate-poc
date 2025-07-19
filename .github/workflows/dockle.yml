@@ -1,0 +1,79 @@
+name: Dockle Code Scanning
+
+on:
+  push:
+    branches: ["main", "homolog"]
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  dockle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Build Docker image
+        run: docker build -t built-image:scan .
+
+      - name: Run Dockle with SARIF output
+        uses: goodwithtech/dockle-action@main
+        continue-on-error: true
+        with:
+          image: 'built-image:scan'
+          format: 'sarif'
+          output: 'dockle-results.sarif'
+          exit-code: '1'
+          exit-level: 'warn'
+
+      - name: Check Dockle SARIF file
+        run: |
+          echo "Verificando conteúdo do SARIF:"
+          cat dockle-results.sarif | head -n 30
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: dockle-results.sarif
+
+      - name: Fail if vulnerabilities found (Dockle)
+        run: |
+          docker run --rm goodwithtech/dockle -f table --exit-code 1 -i built-image:scan
+
+      - name: 🔗 Show results link
+        run: echo "🔍 https://github.com/${{ github.repository }}/security/code-scanning"
+
+      - name: 'Upload Dockle report to DefectDojo'
+        if: always()
+        env:
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+        run: |
+          echo "Verificando existência do relatório Dockle..."
+          ls -lh dockle-report.json || { echo 'Relatório não encontrado!'; exit 1; }
+          echo "Enviando relatório para DefectDojo..."
+          response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+            -H "Authorization: Token ${{ secrets.DEFECTDOJO_TOKEN }}" \
+            -F "scan_type=Dockle Scan" \
+            -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
+            -F "file=@dockle-report.json" \
+            -F "minimum_severity=Low" \
+            -F "active=true" \
+            -F "verified=false" \
+            -F "reimport=true" \
+            -F "close_old_findings=true" \
+            -F "do_not_reactivate=false" )
+          body=$(echo "$response" | head -n -1)
+          code=$(echo "$response" | tail -n1)
+          echo "Resposta do DefectDojo (HTTP $code):"
+          echo "$body"
+          if [ "$code" -ge 400 ]; then
+            echo "::error::Falha ao enviar relatório para DefectDojo!"
+            exit 1
+          fi
+          echo "Relatório enviado com sucesso. Verifique o DefectDojo para os resultados."

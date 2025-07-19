@@ -1,0 +1,32 @@
+[[rules]]
+id = "jwt-hardcoded"
+description = "Detecta JWTs hardcoded (padrão real)"
+regex = '''eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}'''
+tags = ["jwt", "token"]
+
+[[rules]]
+id = "github-token"
+description = "Detecta tokens do GitHub (ghp_...)"
+regex = '''ghp_[A-Za-z0-9]{36,}'''
+tags = ["github", "token"]
+
+[[rules]]
+id = "aws-secret-access-key"
+description = "Detecta AWS Secret Access Key fake/real"
+regex = '''(?i)(aws|aws_secret_access_key)[^\n]*['\"][A-Za-z0-9/+=]{20,}['\"]'''
+tags = ["aws", "key"]
+
+[[rules]]
+id = "slack-webhook-url"
+description = "Detecta Slack Webhook URLs"
+regex = '''https://hooks.slack.com/services/[A-Za-z0-9]+/[A-Za-z0-9]+/[A-Za-z0-9]+'''
+tags = ["slack", "webhook"]
+
+[[rules]]
+id = "generic-secret"
+description = "Detecta valores hardcoded em variáveis chamadas Secret"
+regex = '''(?i)secret[^\n]*['\"][A-Za-z0-9\-_=]{10,}['\"]'''
+tags = ["generic", "secret"]
+
+[allowlist]
+paths = ["node_modules/"]

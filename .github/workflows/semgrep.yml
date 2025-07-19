@@ -1,0 +1,99 @@
+name: Semgrep Scan
+
+on:
+  push:
+    branches:
+      - main
+      - homolog
+  pull_request: {}
+  workflow_dispatch: {}
+  schedule:
+    - cron: '20 17 * * *'
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  semgrep:
+    name: Run Semgrep Static Analysis
+    runs-on: ubuntu-latest
+
+    if: ${{ github.actor != 'dependabot[bot]' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install Semgrep
+        run: |
+          python -m pip install --upgrade pip
+          pip install semgrep
+
+      - name: Run Semgrep scan with SARIF output
+        run: |
+          semgrep --config p/owasp-top-ten --error --output=semgrep.sarif --sarif
+
+      - name: Verificar conteúdo do SARIF
+        run: |
+          head semgrep.sarif || echo "Arquivo SARIF vazio ou não encontrado"
+
+      - name: Upload SARIF report to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+
+      - name: Show link to Code Scanning results
+        run: |
+          echo "🔍 Veja os resultados em: https://github.com/${{ github.repository }}/security/code-scanning"
+
+      - name: Gerar relatório Semgrep em JSON
+        run: |
+          semgrep --config auto --error --json --output=semgrep.json
+          ls -lh semgrep.json
+
+      - name: Validar conteúdo do relatório Semgrep JSON
+        run: |
+          if [ ! -f semgrep.json ]; then
+            echo "::error::Arquivo semgrep.json não encontrado!"
+            exit 1
+          fi
+          if [ $(wc -c <semgrep.json) -eq 0 ]; then
+            echo "::error::Arquivo semgrep.json está vazio!"
+            exit 1
+          fi
+          head semgrep.json
+
+      - name: Enviar relatório Semgrep JSON para DefectDojo
+        if: always()
+        run: |
+          echo "Enviando semgrep.json para DefectDojo..."
+          response=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.DEFECTDOJO_URL }}/api/v2/import-scan/" \
+            -H "Authorization: Token ${{ secrets.DEFECTDOJO_TOKEN }}" \
+            -F "scan_type=Semgrep JSON Report" \
+            -F "engagement=${{ secrets.DEFECTDOJO_ENGAGEMENT_ID }}" \
+            -F "file=@semgrep.json" \
+            -F "minimum_severity=Low" \
+            -F "active=true" \
+            -F "verified=false" \
+            -F "reimport=true" \
+            -F "close_old_findings=true" \
+            -F "do_not_reactivate=false" )
+          body=$(echo "$response" | head -n -1)
+          code=$(echo "$response" | tail -n1)
+          echo "Resposta do DefectDojo (HTTP $code):"
+          echo "$body"
+          if [ "$code" -ge 400 ]; then
+            echo "::error::Falha ao enviar relatório para DefectDojo!"
+            exit 1
+          fi
+          echo "Relatório enviado com sucesso. Verifique o DefectDojo para os resultados!"
+
+
